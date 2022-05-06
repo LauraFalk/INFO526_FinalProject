@@ -1,0 +1,267 @@
+---
+title: "PARK_Heatmap_01"
+author: "Laura Palacios"
+date: "4/12/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE, warning=FALSE, message = FALSE}
+library(formattable)
+library(ggpubr)
+library(ggthemes)
+library(knitr)
+library(scales)
+library(tidyverse)
+opts_chunk$set(echo = TRUE)
+```
+
+### Final Project Introduction
+
+This data explores uplands monitoring data from a National Park Service unit (Park). Data collection followed procedures from the Terrestrial Vegetation and Soils Monitoring Protocol and Standard Operating Procedures: Sonoran Desert and Chihuahuan Desert Networks (www.nps.gov). Data collection began promtly following a large-scale fire. 
+
+This subset of data was obtained through the Sonoran Desert Network, with location identifiers removed in order to ensure no protected data is reproduced in these visualizations. 
+
+### Data Preparation
+```{r}
+#File output from DB is multiple aggregates. Read in all files before aggregating further for graphics.
+soil <- read.csv("data/PARK_soil.csv")
+stability <- read.csv("data/PARK_stability.csv")
+field <- read.csv("data/PARK_Field.csv")
+subcan <- read.csv("data/PARK_Subcanopy.csv")
+subandcan <- read.csv("data/Park_Sub-can.csv")
+```
+
+Summarize data for each metric of concern
+```{r}
+#Cleans up the knit output - removes summary message
+options(dplyr.summarise.inform = FALSE)
+
+#Repeat same task for each metric, but all all calculated slightly differently so a function cannot be created easily. These also attribute the label, colors and axes titles that will be used for visualization. 
+BGC <- soil %>%
+  group_by(Std_Loc_Name,Event_Year) %>%
+  summarize(Value = sum(exposed_bareground)/sum(Trials))
+BGC$Color <- ifelse(BGC$Value > .4, "Yellow","Green")
+BGC$Color <-ifelse(BGC$Value>.3,"Red",BGC$Color)
+BGC$Color <-ifelse(is.na(BGC$Color),"White",BGC$Color)
+BGC$Type <- "Bareground Cover %"
+BGC$Danger <- "Erosion"
+
+SS <- stability %>%
+  group_by(Std_Loc_Name,Event_Year) %>%
+  summarize(Value = round(mean(Soil_Stability_Index, na.rm = TRUE),2))
+SS$Color <- ifelse(SS$Value <= 4, "Yellow","Green")
+SS$Color <-ifelse(SS$Value<3,"Red",SS$Color)
+SS$Color <-ifelse(is.na(SS$Color),"White",SS$Color)
+SS$Type <- "Soil Stability Index (1-6)"
+SS$Danger <- "Erosion"
+
+PGC <- field %>%
+  group_by(Std_Loc_Name,Event_Year) %>%
+  summarize(Value = sum(PG)/sum(Trials))
+PGC$Color <- ifelse(PGC$Value <= .35, "Yellow","Green")
+PGC$Color <-ifelse(PGC$Value<.25,"Red",PGC$Color)
+PGC$Color <-ifelse(is.na(PGC$Color),"White",PGC$Color)
+PGC$Type <- "Perennial Grass Cover %"
+PGC$Danger <- "Erosion"
+
+SE <- subcan %>%
+  group_by(Std_Loc_Name,Event_Year) %>%
+  summarize(Value = sum(shrub)/sum(Trials))
+SE$Color <- ifelse(SE$Value >= .45, "Yellow","Green")
+SE$Color <-ifelse(SE$Value>.35,"Red",SE$Color)
+SE$Color <-ifelse(is.na(SE$Color),"White",SE$Color)
+SE$Type <- "Shrub %"
+SE$Danger <- "Shrub"
+
+FM <- field %>%
+  group_by(Std_Loc_Name,Event_Year) %>%
+  summarize(Value = sum(PROSO)/sum(Trials))
+FM$Color <- ifelse(FM$Value >= .25, "Yellow","Green")
+FM$Color <-ifelse(FM$Value>.15,"Red",FM$Color)
+FM$Color <-ifelse(is.na(FM$Color),"White",FM$Color)
+FM$Type <- "Field Mesquite %"
+FM$Danger <- "Mesquite"
+
+SCCM <- subandcan %>%
+  group_by(Std_Loc_Name,Event_Year) %>%
+  summarize(Value = sum(PROSO)/sum(Trials))
+SCCM$Color <- ifelse(SCCM$Value >= .30, "Yellow","Green")
+SCCM$Color <-ifelse(SCCM$Value>.20,"Red",SCCM$Color)
+SCCM$Color <-ifelse(is.na(SCCM$Color),"White",SCCM$Color)
+SCCM$Type <- "Sub & Canopy Mesquite %"
+SCCM$Danger <- "Mesquite"
+```
+
+Merge together data for visualization one
+```{r}
+#bind all rows created above
+mergeddata <- rbind(BGC,FM,PGC,SCCM,SE,SS)
+```
+  
+### Visualization 1: Heatmap
+This heatmap is intended to be an easily accessible summary of the statistics measured during years 2011, 2016 and 2021 and highlight areas of concern. To ease accessibility for managers who know the locations, I considered them to be ordered.
+```{r}
+#Creates the standard names for the x axis
+GraphData <- mergeddata %>%
+  mutate(plotnum = str_sub(Std_Loc_Name,-3,-1))%>%
+  mutate(SLN = paste(ifelse(str_detect(Std_Loc_Name,"Rocky")==TRUE, "R","B"),plotnum, sep = ""))
+
+#This creates a list of the plots so that each graph will show all values (standardizes the x axis for easy comparison)
+axislabels <- unique(GraphData$SLN)
+
+#There are three repeated heatmaps.  According to https://pilestone.com/pages/color-blindness-simulator-1 the difference in colors is colorblind friendly.
+#Each plot contains its own title, subtitle and caption by choice. Since the plots are large I wanted to ensure they were easily distinguished. This is also why the plot creation is repeated rather than made into a function - subtitle can be easily edited if a new year were to indicate an extreme change.
+
+#2011 graph
+Heat2011 <- GraphData %>%
+  filter(Event_Year ==2011)%>%
+  na.omit()%>%
+  ggplot(aes(x = SLN,
+             y=Type,
+             fill= Color)) + 
+  geom_tile(color = "black")+
+  geom_tile(data = subset(GraphData,is.na(Value) & Event_Year ==2011), colour = "black",fill = "white")+
+  geom_text(aes(label = ifelse(Type == "Soil Stability Index (1-6)",round(Value, 2),percent(Value,1)), 
+                color=ifelse(Color=="Red", "white", "black")))+
+  theme_bw()+
+  scale_x_discrete(limits = axislabels, labels = axislabels, drop = FALSE)+
+  scale_color_manual(values=c("white"="white", "black"="black"), 
+                     guide = "none")+
+  scale_fill_manual(values = c( "Green" = "grey96", "Yellow" = "orange1","Red" = "red4", "White" = "white"), 
+                  labels = c("Within standards","Near standard","Did not meet standards", "Missing"))+ 
+  labs(title = "Metrics of management concern at a National Park Unit, 2011",
+       subtitle = "Multiple plots indicate an erosion hazard",
+       caption = "Data modified from the National Park Service",
+       x= "Location",
+       y = "Management assessment value")+
+  theme(plot.caption = element_text(face= "italic"),
+        plot.title.position = "plot",
+        plot.title = element_text(margin = margin(0, 0, 10, 0),hjust = 0.1),
+        plot.subtitle = element_text(margin = margin(0, 0, 25, 0),hjust = 0.1),
+        legend.position = "top", legend.title = element_blank(),
+        strip.placement = "inside")+
+  facet_grid(Danger~.,scales = "free_y",space = "free", switch = "y")
+
+Heat2016 <- GraphData%>%
+  filter(Event_Year ==2016)%>%
+  na.omit()%>%
+  ggplot(aes(x = SLN,
+             y=Type,
+             fill= Color)) + 
+  geom_tile(color = "black")+
+  geom_tile(data = subset(GraphData,is.na(Value) & Event_Year ==2016), colour = "black",fill = "white")+
+  geom_text(aes(label = ifelse(Type == "Soil Stability Index (1-6)",round(Value, 2),percent(Value,1)), 
+                color=ifelse(Color=="Red", "white", "black")))+
+  theme_bw()+
+  scale_x_discrete(limits = axislabels, labels = axislabels, drop = FALSE)+
+  scale_color_manual(values=c("white"="white", "black"="black"), 
+                     guide = "none")+
+  scale_fill_manual(values = c( "Green" = "grey96", "Yellow" = "orange1","Red" = "red4", "White" = "white"), 
+                  labels = c("Within standards","Near standard","Did not meet standards", "Missing"))+ 
+  labs(title = "Metrics of management concern at a National Park Unit, 2016",
+       subtitle = "Multiple plots indicate an erosion hazard",
+       caption = "Data modified from the National Park Service",
+       x= "Location",
+       y = "Management assessment value")+
+  theme(plot.caption = element_text(face= "italic"),
+        plot.title.position = "plot",
+        plot.title = element_text(margin = margin(0, 0, 10, 0),hjust = 0.1),
+        plot.subtitle = element_text(margin = margin(0, 0, 25, 0),hjust = 0.1),
+        legend.position = "top", legend.title = element_blank(),
+        strip.placement = "inside")+
+  facet_grid(Danger~.,scales = "free_y",space = "free", switch = "y")
+
+Heat2021<- GraphData %>%
+  filter(Event_Year ==2021)%>%
+  na.omit()%>%
+  ggplot(aes(x = SLN,
+             y=Type,
+             fill= Color)) + 
+  geom_tile(color = "black")+
+  geom_tile(data = subset(GraphData,is.na(Value) & Event_Year ==2021), colour = "black",fill = "white")+
+  geom_text(aes(label = ifelse(Type == "Soil Stability Index (1-6)",round(Value, 2),percent(Value,1)), 
+                color=ifelse(Color=="Red", "white", "black")))+
+  theme_bw()+
+  scale_x_discrete(limits = axislabels, labels = axislabels, drop = FALSE)+
+  scale_color_manual(values=c("white"="white", "black"="black"), 
+                     guide = "none")+
+  scale_fill_manual(values = c( "Green" = "grey96", "Yellow" = "orange1","Red" = "red4", "White" = "white"), 
+                  labels = c("Within standards","Near standard","Did not meet standards", "Missing"))+ 
+  labs(title = "Metrics of management concern at a National Park Unit, 2021",
+       subtitle = "Multiple plots indicate an erosion hazard",
+       caption = "Data modified from the National Park Service",
+       x= "Location",
+       y = "Management assessment value")+
+  theme(plot.caption = element_text(face= "italic"),
+        plot.title.position = "plot",
+        plot.title = element_text(margin = margin(0, 0, 10, 0),hjust = 0.1),
+        plot.subtitle = element_text(margin = margin(0, 0, 25, 0),hjust = 0.1),
+        legend.position = "top", legend.title = element_blank(),
+        strip.placement = "inside")+
+  facet_grid(Danger~.,scales = "free_y",space = "free", switch = "y")
+
+```
+
+Combine all plots into one image. Size is edited in order to allow the plots to remain full-size.
+
+```{r fig.height=20, fig.width = 10}
+#Create one arranged visual to include the three graphs. Edit the plot height when knit.
+ggarrange(Heat2011, Heat2016, Heat2021 , 
+          #labels = c("2011", "2016", "2021"),
+          ncol = 1, nrow = 3)
+```
+
+### Figure 2: Boxplot
+This is an exploration the of the field data (Perennial Grass Cover). I considered any plot with a value of less than 10% in any year to be a "plot of concern", then created a boxplot of all transect data by plot and year.
+```{r}
+#Create a list of the plots where cover was the smallest (less than 10%)
+PGCConcern<- na.omit(unique(with(GraphData, SLN[Value<.1 & Type == "Perennial Grass Cover %"])))
+
+field %>%
+  mutate(plotnum = str_sub(Std_Loc_Name,-3,-1)) %>%
+  mutate(SLN = paste(ifelse(str_detect(Std_Loc_Name,"Rocky")==TRUE, "R","B"),plotnum, sep = "")) %>%
+  mutate(PPG = PG/100) %>%
+  filter(SLN %in% PGCConcern) %>%
+  ggplot(aes(x = factor(SLN), y = PPG, fill = as.character(Event_Year)))+
+  geom_boxplot()+
+  scale_fill_colorblind()+
+  labs(title = "Perennial Grass Cover in plots of most concern, 2016-2021",
+       subtitle = "2016 had peak perennial cover at all sites.",
+       caption = "Data modified from the National Park Service",
+       x= "Location",
+       y = "Percent cover",
+       fill = "Year")+
+  theme_minimal()+
+  guides()+
+  scale_y_continuous(labels=percent_format())+
+  geom_vline(xintercept=c(0.5,1.5,2.5,3.5),color="black")
+```
+
+### Figure 3. Bar Plot
+This is a continued exploration of the field data. I wanted to see if the transect data all contained the same patterns seen in the boxplot, or if specific locations were disproportionately affecting patterns. The bar plot indicates that the majority of the transect data follows the same pattern as the overall summary statistics. More information is needed to determine if there is a trend or if this could be related to fire recovery.
+```{r}
+#Create graph
+field %>%
+  mutate(plotnum = str_sub(Std_Loc_Name,-3,-1)) %>%
+  mutate(SLN = paste(ifelse(str_detect(Std_Loc_Name,"Rocky")==TRUE, "R","B"),plotnum, sep = "")) %>%
+  mutate(PPG = PG/100) %>%
+  filter(SLN %in% PGCConcern) %>%
+  ggplot(aes(x = factor(Transect_Num), y = PPG, fill = as.character(Event_Year)))+
+  geom_bar(position = "dodge", stat = "identity")+
+  scale_fill_colorblind()+
+  labs(title = "Perennial Grass Cover in plots of most concern, 2016-2021",
+       subtitle = "Noticeable rise and fall of perennial grasses in plots B003 and B004",
+       caption = "Data modified from the National Park Service",
+       x= "Transect",
+       y = "Percent cover",
+       fill = "Year")+
+  theme_bw()+
+  guides()+
+  scale_y_continuous(labels=percent_format())+
+  facet_wrap(~SLN)
+
+```
+
+
+
+
